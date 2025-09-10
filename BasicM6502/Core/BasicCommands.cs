@@ -1,4 +1,5 @@
 using BasicM6502.Core;
+using BasicM6502.IO;
 
 namespace BasicM6502.Core;
 
@@ -284,17 +285,112 @@ public class IfCommand : BasicCommand
 
 public class ForCommand : BasicCommand
 {
+    private readonly BasicVariables _variables;
+    private readonly ExpressionEvaluator _evaluator;
+    private readonly ForLoopManager _forLoopManager;
+
+    public ForCommand(BasicVariables variables, ExpressionEvaluator evaluator, ForLoopManager forLoopManager)
+    {
+        _variables = variables;
+        _evaluator = evaluator;
+        _forLoopManager = forLoopManager;
+    }
+
     public override void Execute(CommandContext context)
     {
-        context.IOHandler.Print("FOR loop not yet implemented\r\n");
+        // FOR variable = start TO end [STEP step]
+        if (context.Arguments.Length < 4)
+        {
+            throw new BasicRuntimeException("FOR requires variable = start TO end");
+        }
+
+        string variable = context.Arguments[0];
+        
+        // Find TO keyword
+        int toIndex = -1;
+        for (int i = 0; i < context.Arguments.Length; i++)
+        {
+            if (context.Arguments[i].ToUpper() == "TO")
+            {
+                toIndex = i;
+                break;
+            }
+        }
+
+        if (toIndex == -1)
+        {
+            throw new BasicRuntimeException("FOR missing TO keyword");
+        }
+
+        // Parse start value (between = and TO)
+        string startExpr = string.Join(" ", context.Arguments.Skip(2).Take(toIndex - 2));
+        double startValue = _evaluator.Evaluate(startExpr).NumericValue;
+
+        // Find STEP keyword or use default step of 1
+        int stepIndex = -1;
+        for (int i = toIndex + 1; i < context.Arguments.Length; i++)
+        {
+            if (context.Arguments[i].ToUpper() == "STEP")
+            {
+                stepIndex = i;
+                break;
+            }
+        }
+
+        double endValue, step = 1.0;
+        
+        if (stepIndex == -1)
+        {
+            // No STEP - end value goes from TO to end
+            string endExpr = string.Join(" ", context.Arguments.Skip(toIndex + 1));
+            endValue = _evaluator.Evaluate(endExpr).NumericValue;
+        }
+        else
+        {
+            // STEP present - end value is between TO and STEP
+            string endExpr = string.Join(" ", context.Arguments.Skip(toIndex + 1).Take(stepIndex - toIndex - 1));
+            endValue = _evaluator.Evaluate(endExpr).NumericValue;
+            
+            // Step value comes after STEP
+            string stepExpr = string.Join(" ", context.Arguments.Skip(stepIndex + 1));
+            step = _evaluator.Evaluate(stepExpr).NumericValue;
+        }
+
+        // Set initial value
+        _variables.SetVariable(variable, new BasicValue(startValue));
+
+        // Register the loop
+        if (context.LineNumber.HasValue)
+        {
+            _forLoopManager.StartLoop(variable, startValue, endValue, step, context.LineNumber.Value);
+        }
     }
 }
 
 public class NextCommand : BasicCommand
 {
+    private readonly BasicVariables _variables;
+    private readonly ForLoopManager _forLoopManager;
+    private readonly BasicInterpreter _interpreter;
+
+    public NextCommand(BasicVariables variables, ForLoopManager forLoopManager, BasicInterpreter interpreter)
+    {
+        _variables = variables;
+        _forLoopManager = forLoopManager;
+        _interpreter = interpreter;
+    }
+
     public override void Execute(CommandContext context)
     {
-        context.IOHandler.Print("NEXT not yet implemented\r\n");
+        // NEXT [variable]
+        string? variable = context.Arguments.Length > 0 ? context.Arguments[0] : null;
+        
+        var result = _forLoopManager.ProcessNext(variable, _variables);
+        
+        if (result.ShouldContinue)
+        {
+            _interpreter.JumpToLine(result.ReturnToLine);
+        }
     }
 }
 
@@ -380,9 +476,130 @@ public class ReturnCommand : BasicCommand
     }
 }
 
+// Additional BASIC commands
+
 /// <summary>
-/// QUIT/EXIT command - terminates the interpreter
+/// DIM command - dimensions arrays (simplified implementation)
 /// </summary>
+public class DimCommand : BasicCommand
+{
+    public override void Execute(CommandContext context)
+    {
+        // Simplified DIM - just acknowledge the command
+        // Real implementation would allocate array space
+        context.IOHandler.Print("DIM processed (arrays not yet fully implemented)\r\n");
+    }
+}
+
+/// <summary>
+/// READ command - reads data from DATA statements
+/// </summary>
+public class ReadCommand : BasicCommand
+{
+    public override void Execute(CommandContext context)
+    {
+        context.IOHandler.Print("READ not yet implemented\r\n");
+    }
+}
+
+/// <summary>
+/// DATA command - defines data for READ statements
+/// </summary>
+public class DataCommand : BasicCommand
+{
+    public override void Execute(CommandContext context)
+    {
+        // DATA statements are processed during program parsing, not execution
+        // So this should generally not be called during normal execution
+    }
+}
+
+/// <summary>
+/// INPUT command - gets input from user
+/// </summary>
+public class InputCommand : BasicCommand
+{
+    private readonly BasicVariables _variables;
+    private readonly IOHandler _ioHandler;
+
+    public InputCommand(BasicVariables variables, IOHandler ioHandler)
+    {
+        _variables = variables;
+        _ioHandler = ioHandler;
+    }
+
+    public override void Execute(CommandContext context)
+    {
+        if (context.Arguments.Length == 0)
+        {
+            throw new BasicRuntimeException("INPUT requires a variable name");
+        }
+
+        string varName = context.Arguments[0];
+        
+        // Handle optional prompt
+        string prompt = "? ";
+        if (context.Arguments.Length > 1)
+        {
+            // Look for quoted prompt
+            string fullArgs = string.Join(" ", context.Arguments);
+            if (fullArgs.Contains("\""))
+            {
+                int firstQuote = fullArgs.IndexOf('"');
+                int lastQuote = fullArgs.LastIndexOf('"');
+                if (firstQuote != lastQuote)
+                {
+                    prompt = fullArgs.Substring(firstQuote + 1, lastQuote - firstQuote - 1);
+                }
+            }
+        }
+
+        context.IOHandler.Print(prompt);
+        string? input = context.IOHandler.ReadLine();
+        
+        if (input == null) input = "";
+
+        // Try to parse as number, otherwise store as string
+        if (double.TryParse(input, out double numValue))
+        {
+            _variables.SetVariable(varName, new BasicValue(numValue));
+        }
+        else
+        {
+            _variables.SetVariable(varName, new BasicValue(input));
+        }
+    }
+}
+
+/// <summary>
+/// REM command - remark/comment (does nothing)
+/// </summary>
+public class RemCommand : BasicCommand
+{
+    public override void Execute(CommandContext context)
+    {
+        // Comments do nothing during execution
+    }
+}
+
+/// <summary>
+/// CLEAR command - clears variables but keeps program
+/// </summary>
+public class ClearCommand : BasicCommand
+{
+    private readonly BasicVariables _variables;
+
+    public ClearCommand(BasicVariables variables)
+    {
+        _variables = variables;
+    }
+
+    public override void Execute(CommandContext context)
+    {
+        _variables.Clear();
+        context.IOHandler.Print("VARIABLES CLEARED\r\n");
+    }
+}
 public class QuitCommand : BasicCommand
 {
     private readonly BasicInterpreter _interpreter;

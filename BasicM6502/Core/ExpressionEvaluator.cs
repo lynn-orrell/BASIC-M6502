@@ -37,6 +37,7 @@ public class ExpressionEvaluator
         var tokens = new List<string>();
         var current = "";
         bool inQuotes = false;
+        int parenLevel = 0;
 
         for (int i = 0; i < expression.Length; i++)
         {
@@ -51,7 +52,17 @@ public class ExpressionEvaluator
             {
                 current += c;
             }
-            else if ("+-*/=<>()".Contains(c))
+            else if (c == '(')
+            {
+                parenLevel++;
+                current += c;
+            }
+            else if (c == ')')
+            {
+                parenLevel--;
+                current += c;
+            }
+            else if ("+-*/=<>".Contains(c) && parenLevel == 0)
             {
                 if (current.Length > 0)
                 {
@@ -73,7 +84,7 @@ public class ExpressionEvaluator
                 
                 tokens.Add(c.ToString());
             }
-            else if (c == ' ')
+            else if (c == ' ' && parenLevel == 0)
             {
                 if (current.Length > 0)
                 {
@@ -195,7 +206,7 @@ public class ExpressionEvaluator
     }
 
     /// <summary>
-    /// Evaluate a single token (number, string, variable)
+    /// Evaluate a single token (number, string, variable, function)
     /// </summary>
     private BasicValue EvaluateToken(string token)
     {
@@ -203,6 +214,31 @@ public class ExpressionEvaluator
         if (token.StartsWith("\"") && token.EndsWith("\""))
         {
             return new BasicValue(token[1..^1]); // Remove quotes
+        }
+
+        // Check for function calls (name followed by parentheses)
+        if (token.Contains("(") && token.EndsWith(")"))
+        {
+            int parenIndex = token.IndexOf('(');
+            string funcName = token[..parenIndex];
+            string argsString = token[(parenIndex + 1)..^1]; // Remove parentheses
+            
+            if (BasicFunctions.IsFunction(funcName))
+            {
+                // Parse function arguments
+                var args = new List<BasicValue>();
+                if (!string.IsNullOrWhiteSpace(argsString))
+                {
+                    // Simple argument parsing - split by comma but respect quotes
+                    var argTokens = ParseFunctionArguments(argsString);
+                    foreach (var argToken in argTokens)
+                    {
+                        args.Add(Evaluate(argToken.Trim()));
+                    }
+                }
+                
+                return BasicFunctions.CallFunction(funcName, args.ToArray());
+            }
         }
 
         // Numeric literal
@@ -213,6 +249,61 @@ public class ExpressionEvaluator
 
         // Variable
         return _variables.GetVariable(token);
+    }
+
+    /// <summary>
+    /// Parse function arguments, respecting quoted strings and nested parentheses
+    /// </summary>
+    private List<string> ParseFunctionArguments(string argsString)
+    {
+        var args = new List<string>();
+        var current = "";
+        bool inQuotes = false;
+        int parenLevel = 0;
+
+        for (int i = 0; i < argsString.Length; i++)
+        {
+            char c = argsString[i];
+
+            if (c == '"')
+            {
+                inQuotes = !inQuotes;
+                current += c;
+            }
+            else if (inQuotes)
+            {
+                current += c;
+            }
+            else if (c == '(')
+            {
+                parenLevel++;
+                current += c;
+            }
+            else if (c == ')')
+            {
+                parenLevel--;
+                current += c;
+            }
+            else if (c == ',' && parenLevel == 0)
+            {
+                if (current.Length > 0)
+                {
+                    args.Add(current);
+                    current = "";
+                }
+            }
+            else
+            {
+                current += c;
+            }
+        }
+
+        if (current.Length > 0)
+        {
+            args.Add(current);
+        }
+
+        return args;
     }
 
     /// <summary>

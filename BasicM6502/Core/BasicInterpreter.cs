@@ -16,6 +16,7 @@ public class BasicInterpreter
     private readonly BasicProgram _program;
     private readonly BasicVariables _variables;
     private readonly ExpressionEvaluator _evaluator;
+    private readonly ForLoopManager _forLoopManager;
     private bool _running = true;
 
     // Program execution state
@@ -30,6 +31,7 @@ public class BasicInterpreter
         _program = new BasicProgram();
         _variables = new BasicVariables();
         _evaluator = new ExpressionEvaluator(_variables);
+        _forLoopManager = new ForLoopManager();
         
         // Initialize command dispatch table
         _commands = new Dictionary<string, BasicCommand>
@@ -42,13 +44,19 @@ public class BasicInterpreter
             ["PRINT"] = new PrintCommand(_evaluator),
             ["LET"] = new LetCommand(_variables, _evaluator),
             ["IF"] = new IfCommand(this, _evaluator),
-            ["FOR"] = new ForCommand(),
-            ["NEXT"] = new NextCommand(),
+            ["FOR"] = new ForCommand(_variables, _evaluator, _forLoopManager),
+            ["NEXT"] = new NextCommand(_variables, _forLoopManager, this),
             ["GOTO"] = new GotoCommand(this),
             ["GOSUB"] = new GosubCommand(this),
             ["RETURN"] = new ReturnCommand(this),
             ["END"] = new EndCommand(this),
             ["STOP"] = new StopCommand(this),
+            ["DIM"] = new DimCommand(),
+            ["READ"] = new ReadCommand(),
+            ["DATA"] = new DataCommand(),
+            ["INPUT"] = new InputCommand(_variables, _ioHandler),
+            ["REM"] = new RemCommand(),
+            ["CLEAR"] = new ClearCommand(_variables),
             ["QUIT"] = new QuitCommand(this),
             ["EXIT"] = new QuitCommand(this)
         };
@@ -314,6 +322,11 @@ public class BasicInterpreter
     /// Get the expression evaluator
     /// </summary>
     public ExpressionEvaluator Evaluator => _evaluator;
+
+    /// <summary>
+    /// Get the FOR loop manager
+    /// </summary>
+    public ForLoopManager ForLoopManager => _forLoopManager;
 }
 
 /// <summary>
