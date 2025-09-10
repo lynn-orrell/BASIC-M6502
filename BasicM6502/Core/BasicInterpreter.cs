@@ -13,32 +13,42 @@ public class BasicInterpreter
     private readonly PlatformConfiguration _config;
     private readonly IOHandler _ioHandler;
     private readonly Dictionary<string, BasicCommand> _commands;
+    private readonly BasicProgram _program;
+    private readonly BasicVariables _variables;
+    private readonly ExpressionEvaluator _evaluator;
     private bool _running = true;
+
+    // Program execution state
+    private int? _currentLineNumber = null;
+    private readonly Stack<int> _returnStack = new(); // For GOSUB/RETURN
 
     public BasicInterpreter(M6502Processor processor, PlatformConfiguration config)
     {
         _processor = processor;
         _config = config;
         _ioHandler = new ConsoleIOHandler(config);
+        _program = new BasicProgram();
+        _variables = new BasicVariables();
+        _evaluator = new ExpressionEvaluator(_variables);
         
         // Initialize command dispatch table
         _commands = new Dictionary<string, BasicCommand>
         {
-            ["LIST"] = new ListCommand(),
-            ["RUN"] = new RunCommand(), 
-            ["NEW"] = new NewCommand(),
+            ["LIST"] = new ListCommand(_program),
+            ["RUN"] = new RunCommand(this), 
+            ["NEW"] = new NewCommand(_program, _variables),
             ["LOAD"] = new LoadCommand(),
             ["SAVE"] = new SaveCommand(),
-            ["PRINT"] = new PrintCommand(),
-            ["LET"] = new LetCommand(),
-            ["IF"] = new IfCommand(),
+            ["PRINT"] = new PrintCommand(_evaluator),
+            ["LET"] = new LetCommand(_variables, _evaluator),
+            ["IF"] = new IfCommand(this, _evaluator),
             ["FOR"] = new ForCommand(),
             ["NEXT"] = new NextCommand(),
-            ["GOTO"] = new GotoCommand(),
-            ["GOSUB"] = new GosubCommand(),
-            ["RETURN"] = new ReturnCommand(),
-            ["END"] = new EndCommand(),
-            ["STOP"] = new StopCommand(),
+            ["GOTO"] = new GotoCommand(this),
+            ["GOSUB"] = new GosubCommand(this),
+            ["RETURN"] = new ReturnCommand(this),
+            ["END"] = new EndCommand(this),
+            ["STOP"] = new StopCommand(this),
             ["QUIT"] = new QuitCommand(this),
             ["EXIT"] = new QuitCommand(this)
         };
@@ -106,7 +116,8 @@ public class BasicInterpreter
             // Line number only - delete line
             if (int.TryParse(input, out int lineNum))
             {
-                DeleteProgramLine(lineNum);
+                _program.DeleteLine(lineNum);
+                _ioHandler.Print($"Line {lineNum} deleted\r\n");
             }
         }
         else
@@ -117,7 +128,8 @@ public class BasicInterpreter
             
             if (int.TryParse(lineNumStr, out int lineNum))
             {
-                StoreProgramLine(lineNum, content);
+                _program.StoreLine(lineNum, content);
+                _ioHandler.Print($"Line {lineNum} stored\r\n");
             }
         }
     }
@@ -158,17 +170,126 @@ public class BasicInterpreter
         _ioHandler.Print("\r\n");
     }
 
-    private void StoreProgramLine(int lineNumber, string content)
+    /// <summary>
+    /// Execute the stored BASIC program
+    /// </summary>
+    public void RunProgram()
     {
-        // Simplified program storage - in real implementation this would
-        // store in the tokenized format like the original
-        _ioHandler.Print($"Line {lineNumber} stored\r\n");
+        if (_program.IsEmpty)
+        {
+            _ioHandler.Print("NO PROGRAM TO RUN\r\n");
+            return;
+        }
+
+        try
+        {
+            _currentLineNumber = _program.FirstLineNumber;
+            
+            while (_currentLineNumber.HasValue)
+            {
+                var line = _program.GetLine(_currentLineNumber.Value);
+                if (line == null)
+                    break;
+
+                ExecuteProgramLine(line);
+                
+                // Move to next line if no jump occurred
+                if (_currentLineNumber == line.LineNumber)
+                {
+                    _currentLineNumber = _program.FindNextLineNumber(_currentLineNumber.Value);
+                }
+            }
+        }
+        catch (BasicRuntimeException ex)
+        {
+            _ioHandler.Print($"ERROR AT LINE {_currentLineNumber}: {ex.Message}\r\n");
+        }
+        finally
+        {
+            _currentLineNumber = null;
+        }
     }
 
-    private void DeleteProgramLine(int lineNumber)
+    /// <summary>
+    /// Execute a single program line
+    /// </summary>
+    private void ExecuteProgramLine(BasicProgramLine line)
     {
-        // Simplified line deletion
-        _ioHandler.Print($"Line {lineNumber} deleted\r\n");
+        if (line.Tokens.Length == 0)
+            return;
+
+        string command = line.Tokens[0].ToUpper();
+        
+        if (_commands.TryGetValue(command, out BasicCommand? cmd))
+        {
+            var context = new CommandContext
+            {
+                Processor = _processor,
+                IOHandler = _ioHandler,
+                Config = _config,
+                Arguments = line.Tokens.Skip(1).ToArray(),
+                LineNumber = line.LineNumber
+            };
+            
+            cmd.Execute(context);
+        }
+        else
+        {
+            // Check if it's a variable assignment (implicit LET)
+            if (line.Content.Contains("=") && char.IsLetter(line.Tokens[0][0]))
+            {
+                var letCmd = _commands["LET"];
+                var context = new CommandContext
+                {
+                    Processor = _processor,
+                    IOHandler = _ioHandler,
+                    Config = _config,
+                    Arguments = line.Tokens,
+                    LineNumber = line.LineNumber
+                };
+                letCmd.Execute(context);
+            }
+            else
+            {
+                throw new BasicRuntimeException($"Unknown command: {command}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Jump to a specific line number
+    /// </summary>
+    public void JumpToLine(int lineNumber)
+    {
+        if (_program.GetLine(lineNumber) == null)
+            throw new BasicRuntimeException($"Line {lineNumber} does not exist");
+        _currentLineNumber = lineNumber;
+    }
+
+    /// <summary>
+    /// Push return address for GOSUB
+    /// </summary>
+    public void PushReturn(int lineNumber)
+    {
+        _returnStack.Push(lineNumber);
+    }
+
+    /// <summary>
+    /// Pop return address for RETURN
+    /// </summary>
+    public int PopReturn()
+    {
+        if (_returnStack.Count == 0)
+            throw new BasicRuntimeException("RETURN without GOSUB");
+        return _returnStack.Pop();
+    }
+
+    /// <summary>
+    /// Stop program execution
+    /// </summary>
+    public void StopExecution()
+    {
+        _currentLineNumber = null;
     }
 
     /// <summary>
@@ -178,6 +299,21 @@ public class BasicInterpreter
     {
         _running = false;
     }
+
+    /// <summary>
+    /// Get the program object
+    /// </summary>
+    public BasicProgram Program => _program;
+
+    /// <summary>
+    /// Get the variables object
+    /// </summary>
+    public BasicVariables Variables => _variables;
+
+    /// <summary>
+    /// Get the expression evaluator
+    /// </summary>
+    public ExpressionEvaluator Evaluator => _evaluator;
 }
 
 /// <summary>
@@ -189,6 +325,7 @@ public class CommandContext
     public IOHandler IOHandler { get; init; } = null!;
     public PlatformConfiguration Config { get; init; } = null!;
     public string[] Arguments { get; init; } = Array.Empty<string>();
+    public int? LineNumber { get; init; } = null;
 }
 
 /// <summary>

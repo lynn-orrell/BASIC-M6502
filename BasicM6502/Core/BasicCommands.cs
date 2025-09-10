@@ -8,10 +8,25 @@ namespace BasicM6502.Core;
 /// </summary>
 public class ListCommand : BasicCommand
 {
+    private readonly BasicProgram _program;
+
+    public ListCommand(BasicProgram program)
+    {
+        _program = program;
+    }
+
     public override void Execute(CommandContext context)
     {
-        context.IOHandler.Print("PROGRAM LISTING:\r\n");
-        context.IOHandler.Print("(Program storage not yet implemented)\r\n");
+        if (_program.IsEmpty)
+        {
+            context.IOHandler.Print("NO PROGRAM\r\n");
+            return;
+        }
+
+        foreach (var line in _program.GetAllLines())
+        {
+            context.IOHandler.Print($"{line.LineNumber} {line.Content}\r\n");
+        }
     }
 }
 
@@ -20,10 +35,16 @@ public class ListCommand : BasicCommand
 /// </summary>
 public class RunCommand : BasicCommand
 {
+    private readonly BasicInterpreter _interpreter;
+
+    public RunCommand(BasicInterpreter interpreter)
+    {
+        _interpreter = interpreter;
+    }
+
     public override void Execute(CommandContext context)
     {
-        context.IOHandler.Print("RUNNING PROGRAM...\r\n");
-        context.IOHandler.Print("(Program execution not yet implemented)\r\n");
+        _interpreter.RunProgram();
     }
 }
 
@@ -32,10 +53,20 @@ public class RunCommand : BasicCommand
 /// </summary>
 public class NewCommand : BasicCommand
 {
+    private readonly BasicProgram _program;
+    private readonly BasicVariables _variables;
+
+    public NewCommand(BasicProgram program, BasicVariables variables)
+    {
+        _program = program;
+        _variables = variables;
+    }
+
     public override void Execute(CommandContext context)
     {
+        _program.Clear();
+        _variables.Clear();
         context.IOHandler.Print("NEW PROGRAM\r\n");
-        // In the real implementation, this would clear program memory
     }
 }
 
@@ -45,6 +76,13 @@ public class NewCommand : BasicCommand
 /// </summary>
 public class PrintCommand : BasicCommand
 {
+    private readonly ExpressionEvaluator _evaluator;
+
+    public PrintCommand(ExpressionEvaluator evaluator)
+    {
+        _evaluator = evaluator;
+    }
+
     public override void Execute(CommandContext context)
     {
         if (context.Arguments.Length == 0)
@@ -53,15 +91,18 @@ public class PrintCommand : BasicCommand
             return;
         }
 
-        string output = string.Join(" ", context.Arguments);
+        // Join arguments back into expression and evaluate
+        string expression = string.Join(" ", context.Arguments);
         
-        // Handle quoted strings
-        if (output.StartsWith('"') && output.EndsWith('"'))
+        try
         {
-            output = output[1..^1]; // Remove quotes
+            var result = _evaluator.Evaluate(expression);
+            context.IOHandler.Print(result.ToString() + "\r\n");
         }
-        
-        context.IOHandler.Print(output + "\r\n");
+        catch (Exception ex)
+        {
+            throw new BasicRuntimeException($"Error in PRINT statement: {ex.Message}");
+        }
     }
 }
 
@@ -70,10 +111,59 @@ public class PrintCommand : BasicCommand
 /// </summary>
 public class LetCommand : BasicCommand
 {
+    private readonly BasicVariables _variables;
+    private readonly ExpressionEvaluator _evaluator;
+
+    public LetCommand(BasicVariables variables, ExpressionEvaluator evaluator)
+    {
+        _variables = variables;
+        _evaluator = evaluator;
+    }
+
     public override void Execute(CommandContext context)
     {
-        context.IOHandler.Print("LET statement processed\r\n");
-        // Variable assignment would be implemented here
+        // Handle both "LET X = 5" and "X = 5" formats
+        string[] args = context.Arguments;
+        
+        // If first argument is "LET", skip it
+        if (args.Length > 0 && args[0].ToUpper() == "LET")
+        {
+            args = args.Skip(1).ToArray();
+        }
+
+        if (args.Length < 3)
+        {
+            throw new BasicRuntimeException("Syntax error in assignment");
+        }
+
+        // Find the equals sign
+        int equalsIndex = -1;
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "=")
+            {
+                equalsIndex = i;
+                break;
+            }
+        }
+
+        if (equalsIndex == -1 || equalsIndex == 0)
+        {
+            throw new BasicRuntimeException("Syntax error in assignment");
+        }
+
+        string varName = args[0];
+        string expression = string.Join(" ", args.Skip(equalsIndex + 1));
+
+        try
+        {
+            var value = _evaluator.Evaluate(expression);
+            _variables.SetVariable(varName, value);
+        }
+        catch (Exception ex)
+        {
+            throw new BasicRuntimeException($"Error in assignment: {ex.Message}");
+        }
     }
 }
 
@@ -82,9 +172,17 @@ public class LetCommand : BasicCommand
 /// </summary>
 public class EndCommand : BasicCommand
 {
+    private readonly BasicInterpreter _interpreter;
+
+    public EndCommand(BasicInterpreter interpreter)
+    {
+        _interpreter = interpreter;
+    }
+
     public override void Execute(CommandContext context)
     {
         context.IOHandler.Print("END\r\n");
+        _interpreter.StopExecution();
     }
 }
 
@@ -93,9 +191,17 @@ public class EndCommand : BasicCommand
 /// </summary>
 public class StopCommand : BasicCommand
 {
+    private readonly BasicInterpreter _interpreter;
+
+    public StopCommand(BasicInterpreter interpreter)
+    {
+        _interpreter = interpreter;
+    }
+
     public override void Execute(CommandContext context)
     {
         context.IOHandler.Print("STOP\r\n");
+        _interpreter.StopExecution();
     }
 }
 
@@ -118,9 +224,61 @@ public class SaveCommand : BasicCommand
 
 public class IfCommand : BasicCommand
 {
+    private readonly BasicInterpreter _interpreter;
+    private readonly ExpressionEvaluator _evaluator;
+
+    public IfCommand(BasicInterpreter interpreter, ExpressionEvaluator evaluator)
+    {
+        _interpreter = interpreter;
+        _evaluator = evaluator;
+    }
+
     public override void Execute(CommandContext context)
     {
-        context.IOHandler.Print("IF statement not yet implemented\r\n");
+        if (context.Arguments.Length < 3)
+        {
+            throw new BasicRuntimeException("IF statement requires condition and THEN");
+        }
+
+        // Find THEN keyword
+        int thenIndex = -1;
+        for (int i = 0; i < context.Arguments.Length; i++)
+        {
+            if (context.Arguments[i].ToUpper() == "THEN")
+            {
+                thenIndex = i;
+                break;
+            }
+        }
+
+        if (thenIndex == -1)
+        {
+            throw new BasicRuntimeException("IF statement missing THEN");
+        }
+
+        // Evaluate condition
+        string condition = string.Join(" ", context.Arguments.Take(thenIndex));
+        var result = _evaluator.Evaluate(condition);
+
+        // If condition is true, execute the THEN part
+        if (result.ToBoolean())
+        {
+            string[] thenPart = context.Arguments.Skip(thenIndex + 1).ToArray();
+            if (thenPart.Length > 0)
+            {
+                // If it's just a line number, GOTO it
+                if (thenPart.Length == 1 && int.TryParse(thenPart[0], out int lineNum))
+                {
+                    _interpreter.JumpToLine(lineNum);
+                }
+                else
+                {
+                    // Execute the statement after THEN
+                    // This is a simplified implementation - real BASIC would need full statement parsing
+                    throw new BasicRuntimeException("Complex THEN statements not yet supported");
+                }
+            }
+        }
     }
 }
 
@@ -142,25 +300,83 @@ public class NextCommand : BasicCommand
 
 public class GotoCommand : BasicCommand
 {
+    private readonly BasicInterpreter _interpreter;
+
+    public GotoCommand(BasicInterpreter interpreter)
+    {
+        _interpreter = interpreter;
+    }
+
     public override void Execute(CommandContext context)
     {
-        context.IOHandler.Print("GOTO not yet implemented\r\n");
+        if (context.Arguments.Length == 0)
+        {
+            throw new BasicRuntimeException("GOTO requires a line number");
+        }
+
+        if (!int.TryParse(context.Arguments[0], out int targetLine))
+        {
+            throw new BasicRuntimeException("Invalid line number in GOTO");
+        }
+
+        _interpreter.JumpToLine(targetLine);
     }
 }
 
 public class GosubCommand : BasicCommand
 {
+    private readonly BasicInterpreter _interpreter;
+
+    public GosubCommand(BasicInterpreter interpreter)
+    {
+        _interpreter = interpreter;
+    }
+
     public override void Execute(CommandContext context)
     {
-        context.IOHandler.Print("GOSUB not yet implemented\r\n");
+        if (context.Arguments.Length == 0)
+        {
+            throw new BasicRuntimeException("GOSUB requires a line number");
+        }
+
+        if (!int.TryParse(context.Arguments[0], out int targetLine))
+        {
+            throw new BasicRuntimeException("Invalid line number in GOSUB");
+        }
+
+        // Push current line number for RETURN
+        if (context.LineNumber.HasValue)
+        {
+            _interpreter.PushReturn(context.LineNumber.Value);
+        }
+
+        _interpreter.JumpToLine(targetLine);
     }
 }
 
 public class ReturnCommand : BasicCommand
 {
+    private readonly BasicInterpreter _interpreter;
+
+    public ReturnCommand(BasicInterpreter interpreter)
+    {
+        _interpreter = interpreter;
+    }
+
     public override void Execute(CommandContext context)
     {
-        context.IOHandler.Print("RETURN not yet implemented\r\n");
+        int returnLine = _interpreter.PopReturn();
+        
+        // Find the next line after the GOSUB
+        var nextLine = _interpreter.Program.FindNextLineNumber(returnLine);
+        if (nextLine.HasValue)
+        {
+            _interpreter.JumpToLine(nextLine.Value);
+        }
+        else
+        {
+            _interpreter.StopExecution();
+        }
     }
 }
 
