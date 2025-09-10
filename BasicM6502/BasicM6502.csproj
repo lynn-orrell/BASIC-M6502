@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyTitle>Microsoft BASIC for 6502 - C# Implementation</AssemblyTitle>
+    <AssemblyDescription>C# port of Microsoft BASIC Version 1.1 for 6502 microprocessor</AssemblyDescription>
+    <AssemblyCompany>Microsoft Corporation (Original), C# Port</AssemblyCompany>
+    <AssemblyCopyright>Original: Microsoft Corporation 1976-1978, C# Port: 2024</AssemblyCopyright>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+  </PropertyGroup>
+
+</Project>
