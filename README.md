@@ -1,5 +1,41 @@
 # Microsoft BASIC for 6502 Microprocessor - Version 1.1
 
+## C# Implementation
+
+This repository now contains both the original 6502 assembly source code and a modern C# implementation of Microsoft BASIC Version 1.1.
+
+### Quick Start
+
+To run the C# implementation:
+
+```bash
+cd BasicM6502
+dotnet run
+```
+
+This will start the BASIC interpreter with the classic Microsoft BASIC interface.
+
+### Available Commands
+
+The C# implementation currently supports these commands:
+
+- `PRINT "text"` - Display text
+- `LIST` - Show program listing (placeholder)
+- `RUN` - Execute program (placeholder)
+- `NEW` - Clear program
+- `10 PRINT "HELLO"` - Store numbered program lines
+- `QUIT` or `EXIT` - Exit the interpreter
+
+### Platform Configurations
+
+The interpreter supports the same platform configurations as the original:
+
+- **Apple II** (default) - 40-column display, 48K memory
+- **Commodore PET** - With disk support and extended I/O
+- **Ohio Scientific (OSI)** - 32-column display
+- **KIM-1** - Minimal configuration
+- **PDP-10 Simulation** - Development configuration
+
 ## Historical Significance
 
 This assembly language source code represents one of the most historically significant pieces of software from the early personal computer era. It is the complete source code for **Microsoft BASIC Version 1.1 for the 6502 microprocessor**, originally developed and copyrighted by Microsoft in 1976-1978.
