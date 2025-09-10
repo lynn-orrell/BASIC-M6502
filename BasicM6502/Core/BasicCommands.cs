@@ -306,9 +306,15 @@ public class ForCommand : BasicCommand
 
         string variable = context.Arguments[0];
         
+        // Expected format: variable = start TO end [STEP step]
+        if (context.Arguments.Length < 4 || context.Arguments[1] != "=")
+        {
+            throw new BasicRuntimeException("FOR syntax: variable = start TO end [STEP step]");
+        }
+        
         // Find TO keyword
         int toIndex = -1;
-        for (int i = 0; i < context.Arguments.Length; i++)
+        for (int i = 2; i < context.Arguments.Length; i++)
         {
             if (context.Arguments[i].ToUpper() == "TO")
             {
