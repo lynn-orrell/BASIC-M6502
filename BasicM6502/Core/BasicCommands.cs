@@ -163,3 +163,22 @@ public class ReturnCommand : BasicCommand
         context.IOHandler.Print("RETURN not yet implemented\r\n");
     }
 }
+
+/// <summary>
+/// QUIT/EXIT command - terminates the interpreter
+/// </summary>
+public class QuitCommand : BasicCommand
+{
+    private readonly BasicInterpreter _interpreter;
+
+    public QuitCommand(BasicInterpreter interpreter)
+    {
+        _interpreter = interpreter;
+    }
+
+    public override void Execute(CommandContext context)
+    {
+        context.IOHandler.Print("BYE\r\n");
+        _interpreter.Stop();
+    }
+}

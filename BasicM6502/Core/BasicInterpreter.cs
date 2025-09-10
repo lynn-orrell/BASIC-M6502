@@ -38,7 +38,9 @@ public class BasicInterpreter
             ["GOSUB"] = new GosubCommand(),
             ["RETURN"] = new ReturnCommand(),
             ["END"] = new EndCommand(),
-            ["STOP"] = new StopCommand()
+            ["STOP"] = new StopCommand(),
+            ["QUIT"] = new QuitCommand(this),
+            ["EXIT"] = new QuitCommand(this)
         };
     }
 
@@ -57,7 +59,14 @@ public class BasicInterpreter
                 _ioHandler.Print("READY\r\n");
                 string? input = _ioHandler.ReadLine();
                 
-                if (string.IsNullOrEmpty(input))
+                // Handle EOF condition (null input)
+                if (input == null)
+                {
+                    _ioHandler.Print("\r\nBYE\r\n");
+                    break;
+                }
+                
+                if (string.IsNullOrWhiteSpace(input))
                     continue;
 
                 ProcessInput(input.Trim());
